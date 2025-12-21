@@ -55,6 +55,7 @@ interface Categoria {
   ativo: boolean
   descricao?: string // Adicionado para compatibilidade com DADOS_EXEMPLO
   imagem?: string // Adicionado para compatibilidade com DADOS_EXEMPLO
+  ordem?: number // Adicionado para ordenação
 }
 
 interface Bebida {
@@ -101,6 +102,11 @@ interface BackupData {
 // 🏪 SISTEMA DE STATUS DA LOJA - MELHORADO PARA SINCRONIZAÇÃO
 const STORAGE_KEY_LOJA_STATUS = "bebidas_on_loja_aberta"
 const STORAGE_KEY_ULTIMA_LIMPEZA = "bebidas_on_ultima_limpeza"
+
+// 🆕 ADICIONANDO CHAVES DE CACHE
+const STORAGE_KEY_BEBIDAS_CACHE = "bebidas_on_bebidas_cache"
+const STORAGE_KEY_CATEGORIAS_CACHE = "bebidas_on_categorias_cache"
+const CACHE_TIMEOUT = 5 * 60 * 1000 // 5 minutos
 
 // ⚠️ IMPORTANTE: No Vercel, cada usuário terá seu próprio localStorage
 // Para sincronizar entre todos os dispositivos, seria necessário usar o banco de dados
@@ -151,6 +157,7 @@ const DADOS_EXEMPLO: BackupData = {
       cor: "amber",
       ativo: true,
       descricao: "Cervejas populares e artesanais.",
+      ordem: 1,
     },
     {
       id: 2,
@@ -159,10 +166,35 @@ const DADOS_EXEMPLO: BackupData = {
       cor: "blue",
       ativo: true,
       descricao: "Diversos sabores e marcas.",
+      ordem: 2,
     },
-    { id: 3, nome: "Águas", icone: "droplets", cor: "blue", ativo: true, descricao: "Água mineral sem e com gás." },
-    { id: 4, nome: "Energéticos", icone: "zap", cor: "yellow", ativo: true, descricao: "Para dar aquele gás extra." },
-    { id: 5, nome: "Sucos", icone: "cup-soda", cor: "green", ativo: true, descricao: "Sucos naturais e em pó." },
+    {
+      id: 3,
+      nome: "Águas",
+      icone: "droplets",
+      cor: "blue",
+      ativo: true,
+      descricao: "Água mineral sem e com gás.",
+      ordem: 3,
+    },
+    {
+      id: 4,
+      nome: "Energéticos",
+      icone: "zap",
+      cor: "yellow",
+      ativo: true,
+      descricao: "Para dar aquele gás extra.",
+      ordem: 4,
+    },
+    {
+      id: 5,
+      nome: "Sucos",
+      icone: "cup-soda",
+      cor: "green",
+      ativo: true,
+      descricao: "Sucos naturais e em pó.",
+      ordem: 5,
+    },
     {
       id: 6,
       nome: "Vinhos",
@@ -170,6 +202,7 @@ const DADOS_EXEMPLO: BackupData = {
       cor: "purple",
       ativo: true,
       descricao: "Seleção de vinhos tintos e brancos.",
+      ordem: 6,
     },
   ],
   bebidas: [
@@ -614,31 +647,82 @@ function BebidasOnAppContent() {
     }
   }, [carregandoInicial])
 
-  // 💾 CARREGAR DADOS - OTIMIZADO PARA CARREGAMENTO RÁPIDO
+  // 🆕 Carregamento instantâneo com cache + atualização em background
   useEffect(() => {
-    const carregarRapido = async () => {
-      setCarregandoInicial(true)
-      await carregarDados()
-      setCarregandoInicial(false)
+    const carregarInstantaneo = async () => {
+      // 1. Carregar do cache primeiro (instantâneo)
+      const cacheCarregado = carregarDoCache()
+
+      if (cacheCarregado) {
+        setCarregandoInicial(false)
+        console.log("⚡ Dados carregados do cache instantaneamente")
+      }
+
+      // 2. Atualizar do Supabase em background (sem bloquear a UI)
+      setTimeout(() => {
+        carregarDados(true) // true = atualização em background
+      }, 100)
     }
-    carregarRapido()
+
+    carregarInstantaneo()
   }, [])
 
-  const carregarDados = async () => {
+  const carregarDoCache = () => {
     try {
-      // ⚡ CARREGAMENTO PARALELO E INSTANTÂNEO - SEM DELAYS E SEM LOGS
-      const [categoriasResult, bebidasResult, pedidosResult] = await Promise.allSettled([
-        carregarCategorias(),
-        carregarBebidas(),
-        carregarPedidos(),
-      ])
+      const bebidasCache = localStorage.getItem(STORAGE_KEY_BEBIDAS_CACHE)
+      const categoriasCache = localStorage.getItem(STORAGE_KEY_CATEGORIAS_CACHE)
+
+      if (bebidasCache && categoriasCache) {
+        const dadosBebidasCache = JSON.parse(bebidasCache)
+        const dadosCategoriasCache = JSON.parse(categoriasCache)
+
+        // Verificar se o cache expirou
+        const agora = Date.now()
+        if (dadosBebidasCache.timestamp && agora - dadosBebidasCache.timestamp < CACHE_TIMEOUT) {
+          setCategorias(dadosCategoriasCache.data || [])
+          setBebidas(dadosBebidasCache.data || [])
+          return true
+        }
+      }
+      return false
     } catch (error) {
-      console.error("❌ Erro crítico ao carregar dados:", error)
-      addToast({
-        type: "error",
-        title: "❌ Erro crítico",
-        description: "Falha ao inicializar o sistema.",
-      })
+      console.error("Erro ao carregar cache:", error)
+      return false
+    }
+  }
+
+  const salvarNoCache = (bebidas: any[], categorias: any[]) => {
+    try {
+      const timestamp = Date.now()
+      localStorage.setItem(STORAGE_KEY_BEBIDAS_CACHE, JSON.stringify({ data: bebidas, timestamp }))
+      localStorage.setItem(STORAGE_KEY_CATEGORIAS_CACHE, JSON.stringify({ data: categorias, timestamp }))
+    } catch (error) {
+      console.error("Erro ao salvar cache:", error)
+    }
+  }
+
+  // 🆕 Carregamento instantâneo com cache + atualização em background
+  const carregarDados = async (backgroundUpdate = false) => {
+    try {
+      if (!backgroundUpdate) {
+        setCarregandoInicial(true)
+      }
+
+      const [categoriasResult, bebidasResult] = await Promise.allSettled([carregarCategorias(), carregarBebidas()])
+
+      // Carregar pedidos apenas se não for atualização em background
+      if (!backgroundUpdate) {
+        await carregarPedidos()
+      }
+
+      if (!backgroundUpdate) {
+        setCarregandoInicial(false)
+      }
+    } catch (error) {
+      console.error("Erro ao carregar dados:", error)
+      if (!backgroundUpdate) {
+        setCarregandoInicial(false)
+      }
     }
   }
 
@@ -740,7 +824,7 @@ function BebidasOnAppContent() {
     try {
       console.log("📂 Carregando categorias do Supabase...")
 
-      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true).order("nome")
+      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true).order("ordem")
 
       if (error) {
         console.error("❌ Erro Supabase:", error)
@@ -750,6 +834,9 @@ function BebidasOnAppContent() {
 
       console.log("✅ Categorias carregadas:", data?.length || 0)
       setCategorias(data || [])
+      // 🆕 Salvar no cache
+      const bebidasAtuais = bebidas.length > 0 ? bebidas : []
+      salvarNoCache(bebidasAtuais, data || [])
     } catch (error) {
       console.error("❌ ERRO CRÍTICO ao carregar categorias:", error)
 
@@ -792,6 +879,8 @@ function BebidasOnAppContent() {
 
       console.log("✅ Bebidas carregadas:", bebidasComCategorias.length)
       setBebidas(bebidasComCategorias)
+      // 🆕 Salvar no cache
+      salvarNoCache(bebidasComCategorias, categorias)
     } catch (error) {
       console.error("❌ ERRO CRÍTICO ao carregar bebidas:", error)
 
@@ -1481,6 +1570,7 @@ ${pedido.localizacao}
         cor: novaCategoria.cor,
         ativo: true,
         descricao: novaCategoria.descricao,
+        ordem: categorias.length + 1,
       }
       setCategorias((prev) => [...prev, novaCategoriaTeste])
       setNovaCategoria({ nome: "", icone: "package", cor: "amber", descricao: "" })
@@ -1503,6 +1593,7 @@ ${pedido.localizacao}
             cor: novaCategoria.cor,
             ativo: true,
             descricao: novaCategoria.descricao,
+            ordem: categorias.length + 1, // Define a ordem
           },
         ])
         .select()
@@ -2130,6 +2221,7 @@ ${pedido.localizacao}
           cor: categoria.cor,
           ativo: categoria.ativo,
           descricao: categoria.descricao,
+          ordem: categoria.ordem,
         })
 
         if (error) {
@@ -2799,7 +2891,7 @@ ${pedido.localizacao}
               <Button
                 onClick={() => setTelaAtual("pagamento")}
                 disabled={carrinho.length === 0}
-                className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold py-4 text-lg rounded-xl"
+                className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-bold py-4 text-lg rounded-xl"
               >
                 🛒 Finalizar Pedido
               </Button>
@@ -2980,7 +3072,7 @@ ${pedido.localizacao}
           <Button
             onClick={finalizarPedido}
             disabled={carregando || (formaPagamento === "dinheiro" && calcularTroco() < 0)}
-            className="w-full bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold py-4 text-lg rounded-xl"
+            className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-bold py-4 text-lg rounded-xl"
           >
             {carregando ? "Processando..." : "🚀 Confirmar Pedido"}
           </Button>
