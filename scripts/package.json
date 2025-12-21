@@ -1,0 +1,16 @@
+{
+  "name": "scripts",
+  "type": "module",
+  "scripts": {
+    "analisar": "tsx analisar-banco.ts",
+    "exportar": "tsx exportar-compactado.ts",
+    "importar": "tsx importar-para-novo-banco.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.75.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "@types/node": "^22"
+  }
+}
