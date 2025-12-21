@@ -824,7 +824,7 @@ function BebidasOnAppContent() {
     try {
       console.log("📂 Carregando categorias do Supabase...")
 
-      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true).order("ordem")
+      const { data, error } = await supabase.from("categorias").select("*").eq("ativo", true)
 
       if (error) {
         console.error("❌ Erro Supabase:", error)
@@ -832,11 +832,17 @@ function BebidasOnAppContent() {
         throw error
       }
 
-      console.log("✅ Categorias carregadas:", data?.length || 0)
-      setCategorias(data || [])
+      const categoriasOrdenadas = (data || []).sort((a, b) => {
+        const ordemA = a.ordem || 999
+        const ordemB = b.ordem || 999
+        return ordemA - ordemB
+      })
+
+      console.log("✅ Categorias carregadas:", categoriasOrdenadas?.length || 0)
+      setCategorias(categoriasOrdenadas)
       // 🆕 Salvar no cache
       const bebidasAtuais = bebidas.length > 0 ? bebidas : []
-      salvarNoCache(bebidasAtuais, data || [])
+      salvarNoCache(bebidasAtuais, categoriasOrdenadas)
     } catch (error) {
       console.error("❌ ERRO CRÍTICO ao carregar categorias:", error)
 
@@ -2624,8 +2630,15 @@ ${pedido.localizacao}
             )}
 
             <div className="space-y-4 animate-fadeInUp" style={{ animationDelay: "0.3s" }}>
+              {/* Adicionar loading ao clicar em Ver Cardápio */}
               <Button
-                onClick={() => setTelaAtual("cardapio")}
+                onClick={() => {
+                  setCarregando(true)
+                  setTimeout(() => {
+                    setTelaAtual("cardapio")
+                    setCarregando(false)
+                  }, 800)
+                }}
                 className={`w-full text-lg py-6 rounded-2xl font-bold shadow-xl hover-lift animate-glow bg-gradient-to-r from-green-400 to-green-500 hover:from-green-500 hover:to-green-600 text-white`}
               >
                 🍻 Ver Cardápio Completo
